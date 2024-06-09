@@ -1,0 +1,36 @@
+name: Coverage Status
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  update-coverage-status:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.20'
+
+    - name: Update Coverage Status
+      run: |
+        go test -coverprofile=c.out
+        coverage=`go tool cover -func=c.out | tail -n1 | grep -Po '[0-9]+(?=\.[0-9]+%)'`
+
+        if   [ $coverage -ge 80 ]; then color=brightgreen;
+        elif [ $coverage -ge 60 ]; then color=green;
+        elif [ $coverage -ge 40 ]; then color=yellow;
+        elif [ $coverage -ge 20 ]; then color=orange;
+        else color=red;
+        fi
+        
+        content='{\"schemaVersion\":1,\"label\":\"Coverage\",\"message\":\"'$coverage'%\",\"color\":\"'$color'\"}'
+        if ! curl -o /dev/null -fLX PATCH 'https://api.github.com/gists/${{secrets.COVERAGE_GIST_ID}}' \
+        -H 'Authorization: Bearer ${{secrets.COVERAGE_GIST_TOKEN}}' \
+        -H 'Content-Type: application/json' \
+        -d '{"files":{"${{github.event.repository.name}}":{"content":"'$content'"}}}'; then
+            exit 1
+        fi
