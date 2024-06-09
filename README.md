@@ -1,9 +1,9 @@
+# Hopper
 ![Build](https://github.com/soreing/hopper/actions/workflows/build_status.yaml/badge.svg)
 ![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/Soreing/4b6f950f01f3e6e5b9ed17b268664538/raw/hopper)
 [![Go Report Card](https://goreportcard.com/badge/github.com/Soreing/hopper)](https://goreportcard.com/report/github.com/Soreing/hopper)
 [![Go Reference](https://pkg.go.dev/badge/github.com/Soreing/hopper.svg)](https://pkg.go.dev/github.com/Soreing/hopper)
 
-# Hopper
 Hopper is a wrapper around the amqp091-go package, providing a simplified and quick 
 way to create publishers and consumers on RabbitMQ.
 
