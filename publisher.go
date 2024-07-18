@@ -244,20 +244,14 @@ func (p *Publisher) Publish(
 	ctx context.Context,
 	exchange string,
 	routingKey string,
-	contentType string,
-	content []byte,
+	publishing amqp.Publishing,
 ) error {
-	pub := amqp.Publishing{
-		ContentType: contentType,
-		Body:        content,
-	}
-
 	// fast publish if there are no middlewares
 	if len(p.mdws) == 0 {
 		p.cnf.add(1)
 		defer p.cnf.done()
 
-		dcnf, err := p.publish(ctx, exchange, routingKey, pub)
+		dcnf, err := p.publish(ctx, exchange, routingKey, publishing)
 		if err != nil {
 			return err
 		} else if ok := dcnf.Wait(); !ok {
@@ -275,7 +269,7 @@ func (p *Publisher) Publish(
 		ctx:        ctx,
 		Exchange:   exchange,
 		RoutingKey: routingKey,
-		Publishing: &pub,
+		Publishing: &publishing,
 		mdwIdx:     0,
 		mdwList:    mdws,
 		mtx:        &sync.RWMutex{},
@@ -293,13 +287,12 @@ func (p *Publisher) PublishAsync(
 	ctx context.Context,
 	exchange string,
 	routingKey string,
-	contentType string,
-	content []byte,
+	publishing amqp.Publishing,
 ) <-chan error {
 	ch := make(chan error)
 
 	go func() {
-		ch <- p.Publish(ctx, exchange, routingKey, contentType, content)
+		ch <- p.Publish(ctx, exchange, routingKey, publishing)
 		close(ch)
 	}()
 

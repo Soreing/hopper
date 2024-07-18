@@ -69,15 +69,17 @@ Publishing sends a message body with a content type to some exchange with a rout
 ```golang
 ctx := context.TODO()
 message := []byte("Lorem ipsum dolor sit amet, consectetur adipiscing elit.")
+publishing := amqp091.Publishing{Body: message, ContentType: "plain/text"}
 
 // Publishing synchronously (blocking)
-err = pub.Publish(ctx, "messages", "messages.inbound", "plain/text", message)
+err = pub.Publish(ctx, "messages", "messages.inbound", publishing)
 if err != nil {
     panic(err)
 }
 
 // Publishing asynchronously (non-blocking)
-err = pub.PublishAsync(ctx, "messages", "messages.inbound", "plain/text", message)
+chn := pub.PublishAsync(ctx, "messages", "messages.inbound", publishing)
+err <- chn
 if err != nil {
     panic(err)
 }
