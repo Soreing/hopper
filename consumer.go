@@ -106,7 +106,7 @@ func (ctrl *Controller) NewConsumer(
 	go func() {
 		err := <-closeCh
 		if err != nil {
-			ctrl.close(err)
+			c.close(err)
 		}
 	}()
 

@@ -173,7 +173,7 @@ func (ctrl *Controller) NewPublisher(
 	go func() {
 		err := <-closeCh
 		if err != nil {
-			ctrl.close(err)
+			p.close(err)
 		}
 	}()
 
