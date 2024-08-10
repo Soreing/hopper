@@ -31,10 +31,13 @@ ctrl.QueueBind("inbound", "messages.inbound", "messages", false, nil)
 ## Publishers
 The Controller can create Publishers, which create their own amqp091.Channel
 and manage the publishing of messages. The publisher needs an Id to distinguish
-different publishers.
+different publishers and a mode that sets the behavior of the publisher.
+ConfirmMode will make the publisher wait for confirmations from the server,
+and TransactionMode makes publishings atomic until they are either committed or
+rolled back.
 
 ```golang
-pub, err := ctrl.NewPublisher("publisher-id")
+pub, err := ctrl.NewPublisher("publisher-id", hopper.ConfirmMode)
 if err != nil {
     panic(err)
 }

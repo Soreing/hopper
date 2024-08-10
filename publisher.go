@@ -8,6 +8,19 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+// PublisherMode configures the publisher's behavior
+type PublisherMode int
+
+const (
+	// ConfirmMode puts a publisher into confirm mode where each publishing
+	// receives a confirmation for reliable publishing
+	ConfirmMode PublisherMode = iota
+
+	// TransactionMode puts the publusher into transaction mode where all
+	// publishings before commit or rollback will be atomic
+	TransactionMode
+)
+
 // PublisherMiddleware describes a function that is called during the publish
 // pipeline. The context matches the context the Publish function was called
 // with and PublishingContext contains the publishing that can be modified,
@@ -37,6 +50,11 @@ type PublishingContext struct {
 // PublisherId gets the id of the publisher handling the publishing pipeline.
 func (ctx *PublishingContext) PublisherId() string {
 	return ctx.pub.id
+}
+
+// PublisherMode gets the mode of the publisher handling the publishing pipeline.
+func (ctx *PublishingContext) PublisherMode() PublisherMode {
+	return ctx.pub.mode
 }
 
 // Lock locks the mutex within the context
@@ -87,10 +105,13 @@ func (ctx *PublishingContext) Next() {
 		)
 		if err != nil {
 			ctx.Error(err)
-		} else if ok, err := dcnf.WaitContext(ctx.ctx); err != nil {
-			ctx.Error(err)
-		} else if !ok {
-			ctx.Error(fmt.Errorf("failed to confirm publishing"))
+		}
+		if ctx.pub.mode == ConfirmMode {
+			if ok, err := dcnf.WaitContext(ctx.ctx); err != nil {
+				ctx.Error(err)
+			} else if !ok {
+				ctx.Error(fmt.Errorf("failed to confirm publishing"))
+			}
 		}
 	}
 
@@ -115,6 +136,7 @@ func (ctx *PublishingContext) GetError() (err error) {
 // Publisher manages publishing and confirmations to the AMQP server.
 type Publisher struct {
 	id   string
+	mode PublisherMode
 	chnl *amqp.Channel
 
 	mtx *sync.Mutex
@@ -132,6 +154,7 @@ type Publisher struct {
 // publishing messages on the new channel.
 func (ctrl *Controller) NewPublisher(
 	id string,
+	mode PublisherMode,
 ) (*Publisher, error) {
 	chnl, err := ctrl.conn.Channel()
 	if err != nil {
@@ -139,20 +162,9 @@ func (ctrl *Controller) NewPublisher(
 		return nil, err
 	}
 
-	confirmCh := make(chan amqp.Confirmation, 256)
-	chnl.NotifyPublish(confirmCh)
-
-	closeCh := make(chan *amqp.Error, 1)
-	chnl.NotifyClose(closeCh)
-
-	err = chnl.Confirm(false)
-	if err != nil {
-		err = fmt.Errorf("failed to put the channel in confirm mode: %w", err)
-		return nil, err
-	}
-
 	p := &Publisher{
 		id:       id,
+		mode:     mode,
 		chnl:     chnl,
 		mtx:      &sync.Mutex{},
 		cnf:      newWaitCounter(),
@@ -162,14 +174,36 @@ func (ctrl *Controller) NewPublisher(
 		chnlDone: make(chan struct{}),
 	}
 
-	// start confirms handler
-	go func() {
-		for ok := true; ok; {
-			_, ok = <-confirmCh
-		}
-	}()
+	switch mode {
+	case ConfirmMode:
+		// switch the channel to confirm mode and create a goroutine to
+		// capture confirms from the server
+		confirmCh := make(chan amqp.Confirmation, 256)
+		chnl.NotifyPublish(confirmCh)
 
-	// start close handler
+		err = chnl.Confirm(false)
+		if err != nil {
+			err = fmt.Errorf("failed to put the channel in confirm mode: %w", err)
+			return nil, err
+		}
+
+		go func() {
+			for ok := true; ok; {
+				_, ok = <-confirmCh
+			}
+		}()
+
+	case TransactionMode:
+		// switch the channel to transaction mode.
+		err = chnl.Tx()
+		if err != nil {
+			err = fmt.Errorf("failed to put the channel in transaction mode: %w", err)
+			return nil, err
+		}
+	}
+
+	closeCh := make(chan *amqp.Error, 1)
+	chnl.NotifyClose(closeCh)
 	go func() {
 		err := <-closeCh
 		if err != nil {
@@ -254,6 +288,8 @@ func (p *Publisher) Publish(
 		dcnf, err := p.publish(ctx, exchange, routingKey, publishing)
 		if err != nil {
 			return err
+		} else if dcnf == nil {
+			return nil
 		} else if ok := dcnf.Wait(); !ok {
 			return fmt.Errorf("failed to confirm publishing")
 		}
@@ -316,4 +352,16 @@ func (p *Publisher) publish(
 	return p.chnl.PublishWithDeferredConfirmWithContext(
 		ctx, exchange, routingKey, false, false, pub,
 	)
+}
+
+// Commit can be called on a publisher after Transaction and it commits the
+// current transaction.
+func (p *Publisher) Commit() error {
+	return p.chnl.TxCommit()
+}
+
+// Rollback can be called on a publisher after Transaction and it rolls back
+// the current transaction.
+func (p *Publisher) Rollback() error {
+	return p.chnl.TxRollback()
 }
